@@ -5,7 +5,7 @@ import (
 )
 
 func TestNewScannerFromParquetFile(t *testing.T) {
-	sc, err := NewScannerFromParquetFile("sample_files/20190408_newrxmetrics_v6_0.parquet", []string{"MessageId"}, nil)
+	sc, err := NewScannerFromParquetFile("sample_files/20190408_newrxmetrics_v6_0.parquet", []string{"MessageId"}, nil, 10)
 	if err != nil {
 		t.Log(err)
 		t.FailNow()

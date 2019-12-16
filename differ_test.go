@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"testing"
 )
 
@@ -18,6 +19,6 @@ func TestDiffer_Diff(t *testing.T) {
 	differ := NewDiffer(sc1, sc2)
 	result := differ.Diff(nil, -1)
 	for i := 0; i < len(result); i++ {
-		result[i].String()
+		result[i].String(os.Stdout)
 	}
 }
