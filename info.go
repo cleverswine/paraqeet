@@ -1,5 +1,10 @@
 package main
 
+/*
+this is mostly copy/pasted from github.com/xitongsys/parquet-go/tool/parquet-tools
+it ptobably doesn't need to be this complicated
+*/
+
 import (
 	"encoding/json"
 	"fmt"
@@ -24,7 +29,6 @@ func ShowSchema(fn string, w io.Writer) error {
 	}
 	defer pr.ReadStop()
 	tree := schematool.CreateSchemaTree(pr.SchemaHandler.SchemaElements)
-	fmt.Fprintln(w, "----- Json schema -----")
 	fmt.Fprintf(w, "%s\n", tree.OutputJsonSchema())
 	return nil
 }

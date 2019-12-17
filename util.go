@@ -3,9 +3,6 @@ package main
 import (
 	"encoding/json"
 	"strconv"
-
-	"github.com/xitongsys/parquet-go-source/local"
-	"github.com/xitongsys/parquet-go/reader"
 )
 
 func valToString(i interface{}) string {
@@ -35,35 +32,4 @@ func getComposite(data map[string]interface{}, cols []string) string {
 		}
 	}
 	return result
-}
-
-func parquetToMap(fn string, limit int) ([]map[string]interface{}, error) {
-	fr, err := local.NewLocalFileReader(fn)
-	if err != nil {
-		return nil, err
-	}
-	defer fr.Close()
-	pr, err := reader.NewParquetReader(fr, nil, 4)
-	if err != nil {
-		return nil, err
-	}
-	defer pr.ReadStop()
-	num := limit
-	if num < 1 {
-		num = int(pr.GetNumRows())
-	}
-	res, err := pr.ReadByNumber(num)
-	if err != nil {
-		return nil, err
-	}
-	b, err := json.Marshal(res)
-	if err != nil {
-		return nil, err
-	}
-	m := []map[string]interface{}{}
-	err = json.Unmarshal(b, &m)
-	if err != nil {
-		return nil, err
-	}
-	return m, nil
 }
