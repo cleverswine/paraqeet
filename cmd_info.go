@@ -8,12 +8,11 @@ import (
 )
 
 func cmdInfo() *cobra.Command {
-	var f string
-	var o string
 	var cmd = &cobra.Command{
-		Use:   "info",
+		Use:   "info [parquet file]",
 		Short: "display information about a parquet file",
 		Long:  "display information about a parquet file",
+		Args:  cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			out := os.Stdout
 			if o != "" {
@@ -24,11 +23,13 @@ func cmdInfo() *cobra.Command {
 				defer of.Close()
 				out = of
 			}
-			ShowSchema(f, out)
+			f1, err := NewParaqeet(args[0])
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer f1.Close()
+			f1.Info(out)
 		},
 	}
-	cmd.Flags().StringVarP(&f, "file", "f", "", "the parquet file to operate on")
-	cmd.MarkFlagRequired("file")
-	cmd.Flags().StringVarP(&o, "output", "o", "", "output file for the results (defaults to standard out)")
 	return cmd
 }

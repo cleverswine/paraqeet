@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"sort"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/xitongsys/parquet-go-source/local"
 	"github.com/xitongsys/parquet-go/reader"
@@ -70,6 +72,24 @@ func (f *Paraqeet) Read(limit int, sortBy []string) ([]map[string]interface{}, e
 func (f *Paraqeet) Info(w io.Writer) error {
 	j := json.NewEncoder(w)
 	return j.Encode(f)
+}
+
+func (f *Paraqeet) ToTable(limit int, w io.Writer) error {
+	data, err := f.Read(limit, nil)
+	if err != nil {
+		return err
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 0, '.', tabwriter.Debug)
+	fmt.Fprintln(tw, strings.Join(f.ColumnNames, "\t"))
+	for i := 0; i < len(data); i++ {
+		res := []string{}
+		row := data[i]
+		for j := 0; j < len(f.ColumnNames); j++ {
+			res = append(res, valToString(row[f.ColumnNames[j]]))
+		}
+		fmt.Fprintln(tw, strings.Join(res, "\t"))
+	}
+	return tw.Flush()
 }
 
 func (f *Paraqeet) ToJson(limit int, w io.Writer) error {
