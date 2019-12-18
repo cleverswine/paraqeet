@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"os"
 
@@ -23,12 +24,16 @@ func cmdInfo() *cobra.Command {
 				defer of.Close()
 				out = of
 			}
-			f1, err := NewParaqeet(args[0])
+			f1, err := NewFile(args[0], -1, nil)
 			if err != nil {
 				log.Fatal(err)
 			}
-			defer f1.Close()
-			f1.Info(out)
+			jd := json.NewEncoder(out)
+			err = jd.Encode(f1.Info())
+			if err != nil {
+				log.Fatal(err)
+			}
+
 		},
 	}
 	return cmd

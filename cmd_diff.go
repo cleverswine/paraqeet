@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -17,19 +18,24 @@ func cmdDiff() *cobra.Command {
 	var cmd = &cobra.Command{
 		Use:   "diff [parquet file]",
 		Short: "perform a diff on two parquet files",
-		Long:  "perform a diff on two parquet files",
-		Args:  cobra.MinimumNArgs(1),
+		Long: `perform a diff on two parquet files, for example 
+> paraqeet diff foo.parquet -g gold.parquet -k MessageId`,
+		Args: cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			f1, err := NewParaqeet(args[0])
+			kc := strings.Split(k, ",")
+			sc := strings.Split(s, ",")
+			if len(sc) == 0 || sc[0] == "" {
+				sc = kc
+			}
+			ic := strings.Split(i, ",")
+			f1, err := NewFile(args[0], -1, sc)
 			if err != nil {
 				log.Fatal(err)
 			}
-			defer f1.Close()
-			f2, err := NewParaqeet(g)
+			f2, err := NewFile(g, -1, sc)
 			if err != nil {
 				log.Fatal(err)
 			}
-			defer f2.Close()
 			out := os.Stdout
 			if o != "" {
 				of, err := os.Create(o)
@@ -39,22 +45,20 @@ func cmdDiff() *cobra.Command {
 				defer of.Close()
 				out = of
 			}
-			kc := strings.Split(k, ",")
-			sc := strings.Split(s, ",")
-			ic := strings.Split(i, ",")
-			d := NewDiffer(f1, f2, l, kc, sc, ic)
+			d := NewDiffer(f1, f2, l, kc, ic)
 			result := d.Diff()
 			for _, res := range result {
 				res.String(out)
 			}
+			fmt.Fprintf(out, "\nThere were a total of %d rows with differences.\n", len(result))
 		},
 	}
 	cmd.Flags().StringVarP(&g, "gold", "g", "", "the \"gold\" parquet file to compare with")
 	cmd.MarkFlagRequired("gold")
-	cmd.Flags().StringVarP(&k, "keys", "k", "", "the comma seperated key column names for joining the files")
+	cmd.Flags().StringVarP(&k, "keys", "k", "", "the comma seperated key column names for joining the files, for example \"MessageId,SenderAccountId\"")
 	cmd.MarkFlagRequired("keys")
-	cmd.Flags().StringVarP(&s, "sort", "s", "", "the comma seperated sort-by column names (if different than key columns)")
-	cmd.Flags().StringVarP(&i, "ignore", "i", "", "the comma seperated column names to ignore")
+	cmd.Flags().StringVarP(&s, "sort", "s", "", "the comma seperated sort-by column names (if different than the key columns)")
+	cmd.Flags().StringVarP(&i, "ignore", "i", "", "the comma seperated column names to ignore, for example \"Foo,*Tiers\". (wildcard prefixes and suffixes are accepted)")
 	cmd.Flags().IntVarP(&l, "limit", "l", 20, "limit the number of diffs that will be processed")
 	return cmd
 }

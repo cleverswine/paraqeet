@@ -23,13 +23,3 @@ func valToString(i interface{}) string {
 		return string(b)
 	}
 }
-
-func getComposite(data map[string]interface{}, cols []string) string {
-	result := ""
-	for i := 0; i < len(cols); i++ {
-		if v, ok := data[cols[i]]; ok {
-			result = result + valToString(v)
-		}
-	}
-	return result
-}
