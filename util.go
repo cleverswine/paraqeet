@@ -3,7 +3,19 @@ package main
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 )
+
+func split(s string) []string {
+	if !strings.Contains(s, ",") {
+		return nil
+	}
+	return strings.Split(s, ",")
+}
+
+func arrayEmpty(a []string) bool {
+	return a == nil || len(a) == 0 || a[0] == ""
+}
 
 func valToString(i interface{}) string {
 	if i == nil {

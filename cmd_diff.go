@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -19,20 +18,20 @@ func cmdDiff() *cobra.Command {
 		Use:   "diff [parquet file]",
 		Short: "perform a diff on two parquet files",
 		Long: `perform a diff on two parquet files, for example 
-> paraqeet diff foo.parquet -g gold.parquet -k MessageId`,
+  > paraqeet diff foo.parquet -g gold.parquet -k MessageId`,
 		Args: cobra.MinimumNArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			kc := strings.Split(k, ",")
-			sc := strings.Split(s, ",")
-			if len(sc) == 0 || sc[0] == "" {
+			kc := split(k)
+			sc := split(s)
+			if sc == nil {
 				sc = kc
 			}
-			ic := strings.Split(i, ",")
-			f1, err := NewFile(args[0], -1, sc)
+			ic := split(i)
+			f1, err := NewFile(args[0], -1, sc, ic)
 			if err != nil {
 				log.Fatal(err)
 			}
-			f2, err := NewFile(g, -1, sc)
+			f2, err := NewFile(g, -1, sc, ic)
 			if err != nil {
 				log.Fatal(err)
 			}

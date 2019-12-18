@@ -24,7 +24,7 @@ func cmdInfo() *cobra.Command {
 				defer of.Close()
 				out = of
 			}
-			f1, err := NewFile(args[0], -1, nil)
+			f1, err := NewFile(args[0], -1, nil, nil)
 			if err != nil {
 				log.Fatal(err)
 			}

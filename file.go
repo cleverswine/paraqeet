@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -13,38 +14,25 @@ import (
 )
 
 type File struct {
-	fileName    string
-	columnNames []string
-	data        []map[string]interface{}
+	fileName      string
+	columnNames   []string
+	data          []interface{}
+	sortBy        []string
+	ignoreColumns []string
 }
 
-func NewFileFromData(data []map[string]interface{}, sortBy []string) (*File, error) {
+func NewFile(fn string, limit int, sortBy []string, ignoreColumns []string) (*File, error) {
 	f := &File{
-		fileName: "",
-	}
-	for k := range data[0] {
-		f.columnNames = append(f.columnNames, k)
-	}
-	f.data = data
-	if sortBy == nil || len(sortBy) == 0 {
-		return f, nil
-	}
-	sort.Slice(f.data, func(i, j int) bool {
-		return getComposite(f.data[i], sortBy) < getComposite(f.data[j], sortBy)
-	})
-	return f, nil
-}
-
-func NewFile(fn string, limit int, sortBy []string) (*File, error) {
-	f := &File{
-		fileName: fn,
+		fileName:      fn,
+		sortBy:        sortBy,
+		ignoreColumns: ignoreColumns,
 	}
 	fr, err := local.NewLocalFileReader(f.fileName)
 	if err != nil {
 		return nil, err
 	}
 	defer fr.Close()
-	pr, err := reader.NewParquetReader(fr, nil, 2)
+	pr, err := reader.NewParquetReader(fr, nil, 4)
 	if err != nil {
 		return nil, err
 	}
@@ -68,24 +56,10 @@ func NewFile(fn string, limit int, sortBy []string) (*File, error) {
 		l = totalRows
 	}
 	// read data
-	res, err := pr.ReadByNumber(l)
+	f.data, err = pr.ReadByNumber(l)
 	if err != nil {
 		return nil, err
 	}
-	if err != nil {
-		return nil, err
-	}
-	data, err := toMap(res)
-	if err != nil {
-		return nil, err
-	}
-	f.data = data
-	if sortBy == nil || len(sortBy) == 0 {
-		return f, nil
-	}
-	sort.Slice(f.data, func(i, j int) bool {
-		return getComposite(f.data[i], sortBy) < getComposite(f.data[j], sortBy)
-	})
 	return f, nil
 }
 
@@ -102,15 +76,16 @@ func (f *File) Info() map[string]interface{} {
 
 func (f *File) ToJSON(w io.Writer) error {
 	j := json.NewEncoder(w)
-	return j.Encode(f.data)
+	return j.Encode(f.Data())
 }
 
 func (f *File) ToTable(w io.Writer) error {
+	data := f.Data()
 	tw := tabwriter.NewWriter(w, 0, 0, 0, '.', tabwriter.Debug)
 	fmt.Fprintln(tw, strings.Join(f.columnNames, "\t"))
-	for i := 0; i < len(f.data); i++ {
+	for i := 0; i < len(data); i++ {
 		res := []string{}
-		row := f.data[i]
+		row := data[i]
 		for j := 0; j < len(f.columnNames); j++ {
 			res = append(res, valToString(row[f.columnNames[j]]))
 		}
@@ -120,7 +95,57 @@ func (f *File) ToTable(w io.Writer) error {
 }
 
 func (f *File) Data() []map[string]interface{} {
-	return f.data
+	ignoreKey := func(k string) bool {
+		if arrayEmpty(f.ignoreColumns) {
+			return false
+		}
+		for i := 0; i < len(f.ignoreColumns); i++ {
+			ic := strings.ToLower(f.ignoreColumns[i])
+			s := strings.ToLower(k)
+			if s == ic {
+				return true
+			}
+			if strings.HasPrefix(ic, "*") {
+				if strings.HasSuffix(s, strings.Replace(ic, "*", "", 1)) {
+					return true
+				}
+			}
+			if strings.HasSuffix(ic, "*") {
+				if strings.HasPrefix(s, strings.Replace(ic, "*", "", 1)) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	b, err := json.Marshal(f.data)
+	if err != nil {
+		log.Fatal(err)
+	}
+	m := []map[string]interface{}{}
+	err = json.Unmarshal(b, &m)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if !arrayEmpty(f.sortBy) {
+		sort.Slice(f.data, func(i, j int) bool {
+			return getComposite(m[i], f.sortBy) < getComposite(m[j], f.sortBy)
+		})
+	}
+	if arrayEmpty(f.ignoreColumns) {
+		return m
+	}
+	m2 := []map[string]interface{}{}
+	for i := 0; i < len(m); i++ {
+		item := map[string]interface{}{}
+		for k, v := range m2[i] {
+			if !ignoreKey(k) {
+				item[k] = v
+			}
+		}
+		m2 = append(m2, item)
+	}
+	return m2
 }
 
 func getComposite(data map[string]interface{}, cols []string) string {
@@ -131,17 +156,4 @@ func getComposite(data map[string]interface{}, cols []string) string {
 		}
 	}
 	return result
-}
-
-func toMap(res []interface{}) ([]map[string]interface{}, error) {
-	b, err := json.Marshal(res)
-	if err != nil {
-		return nil, err
-	}
-	m := []map[string]interface{}{}
-	err = json.Unmarshal(b, &m)
-	if err != nil {
-		return nil, err
-	}
-	return m, nil
 }
