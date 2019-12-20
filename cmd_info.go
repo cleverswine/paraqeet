@@ -24,12 +24,11 @@ func cmdInfo() *cobra.Command {
 				defer of.Close()
 				out = of
 			}
-			f1, err := NewFile(args[0], -1, nil, nil)
+			f1, err := LoadFile(args[0], nil, nil, 1)
 			if err != nil {
 				log.Fatal(err)
 			}
-			jd := json.NewEncoder(out)
-			err = jd.Encode(f1.Info())
+			err = json.NewEncoder(out).Encode(f1)
 			if err != nil {
 				log.Fatal(err)
 			}

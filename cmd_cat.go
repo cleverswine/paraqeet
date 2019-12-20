@@ -27,12 +27,12 @@ func cmdCat() *cobra.Command {
 				defer of.Close()
 				out = of
 			}
-			f1, err := NewFile(args[0], l, split(s), split(i))
+			f1, err := LoadFile(args[0], split(i), nil, l)
 			if err != nil {
 				log.Fatal(err)
 			}
 			if f == "json" {
-				f1.ToJSON(out)
+				f1.ToJson(out)
 			} else {
 				f1.ToTable(out)
 			}

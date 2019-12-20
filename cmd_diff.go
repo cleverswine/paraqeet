@@ -27,14 +27,16 @@ func cmdDiff() *cobra.Command {
 				sc = kc
 			}
 			ic := split(i)
-			f1, err := NewFile(args[0], -1, sc, ic)
+			f1, err := LoadFile(args[0], split(i), nil, -1)
 			if err != nil {
 				log.Fatal(err)
 			}
-			f2, err := NewFile(g, -1, sc, ic)
+			f1.Sort(split(s))
+			f2, err := LoadFile(g, ic, nil, -1)
 			if err != nil {
 				log.Fatal(err)
 			}
+			f2.Sort(split(s))
 			out := os.Stdout
 			if o != "" {
 				of, err := os.Create(o)

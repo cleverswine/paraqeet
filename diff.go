@@ -81,9 +81,9 @@ func NewDiffer(f1 *File, f2 *File, limit int, keyColumns []string, ignoreColumns
 
 func (d *Differ) Diff() []*Diff {
 	result := []*Diff{}
-	f1Data := d.f1.Data()
+	f1Data := d.f1.GetAllData()
 	f1Index := 0
-	f2Data := d.f2.Data()
+	f2Data := d.f2.GetAllData()
 	f2Index := 0
 	eof := func(i int, t int) bool {
 		return i+1 > t
@@ -119,8 +119,8 @@ func (d *Differ) Diff() []*Diff {
 			f1Index++
 			continue
 		}
-		f1DataKey := getComposite(f1Data[f1Index], d.keyColumns)
-		f2DataKey := getComposite(f2Data[f2Index], d.keyColumns)
+		f1DataKey := "" //getComposite(f1Data[f1Index], d.keyColumns)
+		f2DataKey := "" //getComposite(f2Data[f2Index], d.keyColumns)
 		// same key, do a compare
 		if f1DataKey == f2DataKey {
 			diff := d.diffRow(f1Data[f1Index], f2Data[f2Index])
@@ -220,11 +220,11 @@ func (d *Differ) diffRow(r1 map[string]interface{}, r2 map[string]interface{}) *
 
 	diff := NewDiff("Row has differences")
 	// add diffs in order
-	for i := 0; i < len(d.f1.ColumnNames()); i++ {
-		k := d.f1.ColumnNames()[i]
-		if d, ok := diffs[k]; ok {
-			diff.Add(k, d[0], d[1])
-		}
-	}
+	// for i := 0; i < len(d.f1.ColumnNames()); i++ {
+	// 	k := d.f1.ColumnNames()[i]
+	// 	if d, ok := diffs[k]; ok {
+	// 		diff.Add(k, d[0], d[1])
+	// 	}
+	// }
 	return diff
 }
