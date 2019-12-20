@@ -3,11 +3,13 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/xitongsys/parquet-go-source/local"
 	"github.com/xitongsys/parquet-go/reader"
@@ -16,22 +18,32 @@ import (
 var o string
 
 func main() {
-	//pq, err := LoadParaqeetFile("../../cpi/calculateduplicatemessages/hdfs/data/auddm/tables/message/dt=2019-12-02/20191202_message.parquet", []string{"*ID"}, -1)
-	pq, err := LoadParaqeetFile("sample_files/columnMismatch1.parquet", nil, -1)
+	pq, err := LoadParaqeetFile("sample_files/columnMismatch1.parquet", nil, []string{"*Id"}, -1)
 	if err != nil {
 		log.Fatalln(err.Error())
 	}
-	json.NewEncoder(os.Stdout).Encode(pq.GetRow(0))
-	// pq.Sort([]string{"first_name", "last_name"})
-	// jd.Encode(pq)
-	// return
+	pq.ToTable(os.Stdout)
 	// var rootCmd = &cobra.Command{Use: "paraqeet"}
 	// rootCmd.PersistentFlags().StringVarP(&o, "output", "o", "", "output file for the results (defaults to standard out)")
 	// rootCmd.AddCommand(cmdDiff(), cmdInfo(), cmdCat())
 	// if err := rootCmd.Execute(); err != nil {
 	// 	fmt.Println(err)
 	// 	os.Exit(1)
-	// }
+}
+
+func toString(sc *ParaqeetSchema, val interface{}) string {
+	if val == nil {
+		return "<null>"
+	}
+	switch sc.Type {
+	case "BYTE_ARRAY":
+		return val.(string)
+	case "INT64":
+		return strconv.FormatInt(val.(int64), 10)
+	default:
+		b, _ := json.Marshal(val)
+		return string(b)
+	}
 }
 
 type ParaqeetSchema struct {
@@ -43,6 +55,7 @@ type ParaqeetFile struct {
 	Schema          []ParaqeetSchema
 	SchemaNamespace string
 	TotalRowCount   int
+	LoadedRowCount  int
 	data            [][]interface{}
 }
 
@@ -53,6 +66,23 @@ func (f *ParaqeetFile) AddData(data []interface{}) {
 	f.data = append(f.data, data)
 }
 
+func (f *ParaqeetFile) ToTable(out io.Writer) error {
+	tw := tabwriter.NewWriter(out, 0, 0, 0, '.', tabwriter.Debug)
+	columnNames := []string{}
+	for _, sc := range f.Schema {
+		columnNames = append(columnNames, sc.Name)
+	}
+	fmt.Fprintln(tw, strings.Join(columnNames, "\t"))
+	for i := 0; i < len(f.data); i++ {
+		fmt.Fprintln(tw, strings.Join(f.GetRowAsStrings(i), "\t"))
+	}
+	return tw.Flush()
+}
+
+func (f *ParaqeetFile) ToJson(out io.Writer) error {
+	return json.NewEncoder(out).Encode(f.GetAllData())
+}
+
 func (f *ParaqeetFile) GetAllData() []map[string]interface{} {
 	result := []map[string]interface{}{}
 	for i := 0; i < len(f.data); i++ {
@@ -61,6 +91,14 @@ func (f *ParaqeetFile) GetAllData() []map[string]interface{} {
 			item[f.Schema[j].Name] = f.data[i][j]
 		}
 		result = append(result, item)
+	}
+	return result
+}
+
+func (f *ParaqeetFile) GetRowAsStrings(index int) []string {
+	result := []string{}
+	for i := 0; i < len(f.Schema); i++ {
+		result = append(result, toString(&f.Schema[i], f.data[index][i]))
 	}
 	return result
 }
@@ -88,17 +126,6 @@ func (f *ParaqeetFile) Sort(sortBy []string) {
 		}
 		return nil, -1
 	}
-	toString := func(sc *ParaqeetSchema, val interface{}) string {
-		switch sc.Type {
-		case "BYTE_ARRAY":
-			return val.(string)
-		case "INT64":
-			return strconv.FormatInt(val.(int64), 10)
-		default:
-			b, _ := json.Marshal(val)
-			return string(b)
-		}
-	}
 	getComposite := func(row []interface{}) string {
 		result := ""
 		for i := 0; i < len(sortBy); i++ {
@@ -114,16 +141,13 @@ func (f *ParaqeetFile) Sort(sortBy []string) {
 	})
 }
 
-func LoadParaqeetFile(fn string, ignore []string, limit int) (*ParaqeetFile, error) {
+func LoadParaqeetFile(fn string, ignore []string, restrict []string, limit int) (*ParaqeetFile, error) {
 	arrayEmpty := func(a []string) bool {
 		return a == nil || len(a) == 0 || a[0] == ""
 	}
-	ignoreColumn := func(k string) bool {
-		if arrayEmpty(ignore) {
-			return false
-		}
-		for i := 0; i < len(ignore); i++ {
-			ic := strings.ToLower(ignore[i])
+	contains := func(arr []string, k string) bool {
+		for i := 0; i < len(arr); i++ {
+			ic := strings.ToLower(arr[i])
 			s := strings.ToLower(k)
 			if s == ic {
 				return true
@@ -138,6 +162,15 @@ func LoadParaqeetFile(fn string, ignore []string, limit int) (*ParaqeetFile, err
 					return true
 				}
 			}
+		}
+		return false
+	}
+	ignoreColumn := func(k string) bool {
+		if !arrayEmpty(restrict) {
+			return !contains(restrict, k)
+		}
+		if !arrayEmpty(ignore) {
+			return contains(ignore, k)
 		}
 		return false
 	}
@@ -158,17 +191,19 @@ func LoadParaqeetFile(fn string, ignore []string, limit int) (*ParaqeetFile, err
 	}
 	pqSchema := pr.Footer.GetSchema()
 	// populate return val with some info
+	t := int(pr.Footer.GetNumRows())
+	l := limit
+	if l < 1 || l > t {
+		l = t
+	}
 	pq := &ParaqeetFile{
-		TotalRowCount:   int(pr.Footer.GetNumRows()),
-		Schema:          []ParaqeetSchema{},
+		TotalRowCount:   t,
+		LoadedRowCount:  l,
 		SchemaNamespace: pqSchema[0].Name,
+		Schema:          []ParaqeetSchema{},
 		data:            [][]interface{}{},
 	}
 	// try reading the data for each column
-	l := limit
-	if l < 1 || l > pq.TotalRowCount {
-		l = pq.TotalRowCount
-	}
 	data := map[string][]interface{}{}
 	for i := 1; i < len(pqSchema); i++ {
 		sc := pqSchema[i]
@@ -181,7 +216,8 @@ func LoadParaqeetFile(fn string, ignore []string, limit int) (*ParaqeetFile, err
 			data[sc.Name] = vals
 			pq.Schema = append(pq.Schema, ParaqeetSchema{Name: sc.Name, Type: t.String()})
 		} else {
-			fmt.Println(err)
+			// log.debug...
+			//fmt.Println(err)
 		}
 	}
 	// convert the columner data to []rows
