@@ -18,7 +18,8 @@ type Schema struct {
 }
 
 type File struct {
-	Schema         []Schema
+	ColumnsByIndex map[int]string
+	ColumnsByName  map[string]int
 	TotalRowCount  int
 	LoadedRowCount int
 	data           [][]interface{}
@@ -27,8 +28,8 @@ type File struct {
 func (f *File) ToTable(out io.Writer) error {
 	tw := tabwriter.NewWriter(out, 0, 0, 0, '.', tabwriter.Debug)
 	columnNames := []string{}
-	for _, sc := range f.Schema {
-		columnNames = append(columnNames, sc.Name)
+	for i := 0; i < len(f.ColumnsByIndex); i++ {
+		columnNames = append(columnNames, f.ColumnsByIndex[i])
 	}
 	fmt.Fprintln(tw, strings.Join(columnNames, "\t"))
 	for i := 0; i < len(f.data); i++ {
@@ -52,8 +53,8 @@ func (f *File) GetAllData() []map[string]interface{} {
 	result := []map[string]interface{}{}
 	for i := 0; i < len(f.data); i++ {
 		item := map[string]interface{}{}
-		for j := 0; j < len(f.Schema); j++ {
-			item[f.Schema[j].Name] = f.data[i][j]
+		for j := 0; j < len(f.ColumnsByIndex); j++ {
+			item[f.ColumnsByIndex[j]] = f.data[i][j]
 		}
 		result = append(result, item)
 	}
@@ -62,7 +63,7 @@ func (f *File) GetAllData() []map[string]interface{} {
 
 func (f *File) GetRowAsStrings(index int) []string {
 	result := []string{}
-	for i := 0; i < len(f.Schema); i++ {
+	for i := 0; i < len(f.ColumnsByIndex); i++ {
 		result = append(result, toString(f.data[index][i]))
 	}
 	return result
@@ -70,8 +71,28 @@ func (f *File) GetRowAsStrings(index int) []string {
 
 func (f *File) GetRow(index int) map[string]interface{} {
 	result := map[string]interface{}{}
-	for i := 0; i < len(f.Schema); i++ {
-		result[f.Schema[i].Name] = f.data[index][i]
+	for i := 0; i < len(f.ColumnsByIndex); i++ {
+		result[f.ColumnsByIndex[i]] = f.data[index][i]
+	}
+	return result
+}
+
+func (f *File) GetComposite(row []interface{}, cols []string) string {
+	result := ""
+	for i := 0; i < len(cols); i++ {
+		if colIndex, ok := f.ColumnsByName[cols[i]]; ok {
+			result += toString(row[colIndex])
+		}
+	}
+	return result
+}
+
+func (f *File) GetCompositeFromMap(row map[string]interface{}, cols []string) string {
+	result := ""
+	for i := 0; i < len(cols); i++ {
+		if rowItem, ok := row[cols[i]]; ok {
+			result += toString(rowItem)
+		}
 	}
 	return result
 }
@@ -83,26 +104,8 @@ func (f *File) Sort(sortBy []string) {
 	if arrayEmpty(sortBy) {
 		return
 	}
-	getColumn := func(colName string) (*Schema, int) {
-		for i := 0; i < len(f.Schema); i++ {
-			if strings.ToLower(f.Schema[i].Name) == strings.ToLower(colName) {
-				return &f.Schema[i], i
-			}
-		}
-		return nil, -1
-	}
-	getComposite := func(row []interface{}) string {
-		result := ""
-		for i := 0; i < len(sortBy); i++ {
-			sc, index := getColumn(sortBy[i])
-			if sc != nil {
-				result += toString(row[index])
-			}
-		}
-		return result
-	}
 	sort.Slice(f.data, func(i, j int) bool {
-		return getComposite(f.data[i]) < getComposite(f.data[j])
+		return f.GetComposite(f.data[i], sortBy) < f.GetComposite(f.data[j], sortBy)
 	})
 }
 
@@ -165,11 +168,13 @@ func LoadFile(fn string, ignore []string, restrict []string, limit int) (*File, 
 	pq := &File{
 		TotalRowCount:  t,
 		LoadedRowCount: l,
-		Schema:         []Schema{},
+		ColumnsByIndex: map[int]string{},
+		ColumnsByName:  map[string]int{},
 		data:           [][]interface{}{},
 	}
 	// try reading the data for each column
 	data := map[string][]interface{}{}
+	j := 0
 	for i := 0; i < len(pr.SchemaHandler.IndexMap); i++ {
 		col := pr.SchemaHandler.IndexMap[int32(i)]
 		ns := strings.Split(col, ".")
@@ -180,36 +185,23 @@ func LoadFile(fn string, ignore []string, restrict []string, limit int) (*File, 
 		if ignoreColumn(colName) {
 			continue
 		}
-		vals, _, _, err := pr.ReadColumnByPath(col, 10)
+		vals, _, _, err := pr.ReadColumnByPath(col, l)
 		if err == nil {
 			data[colName] = vals
-			pq.Schema = append(pq.Schema, Schema{Name: colName, Path: col})
+			pq.ColumnsByIndex[j] = colName
+			pq.ColumnsByName[colName] = j
+			j++
 		} else {
 			// log.debug...
 			fmt.Println(err)
 		}
 	}
-	// for i := 1; i < len(pqSchema); i++ {
-	// 	sc := pqSchema[i]
-	// 	if ignoreColumn(sc.Name) {
-	// 		continue
-	// 	}
-	// 	t := sc.GetType()
-	// 	vals, _, _, err := pr.ReadColumnByPath(pq.SchemaNamespace+"."+sc.Name, l)
-	// 	if err == nil {
-	// 		data[sc.Name] = vals
-	// 		pq.Schema = append(pq.Schema, ParaqeetSchema{Name: sc.Name, Type: t.String()})
-	// 	} else {
-	// 		// log.debug...
-	// 		//fmt.Println(err)
-	// 	}
-	// }
 	// convert the columner data to []rows
 	for i := 0; i < l; i++ {
 		result := []interface{}{}
 		// columns
-		for j := 0; j < len(pq.Schema); j++ {
-			row := data[pq.Schema[j].Name]
+		for j := 0; j < len(pq.ColumnsByIndex); j++ {
+			row := data[pq.ColumnsByIndex[j]]
 			if len(row) > i {
 				result = append(result, row[i])
 			}

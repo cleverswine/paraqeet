@@ -32,7 +32,6 @@ func cmdInfo() *cobra.Command {
 			if err != nil {
 				log.Fatal(err)
 			}
-
 		},
 	}
 	return cmd

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"strings"
 	"text/tabwriter"
 )
 
@@ -66,16 +65,15 @@ func (d *Diff) String(out io.Writer) {
 }
 
 type Differ struct {
-	f1            *File
-	f2            *File
-	limit         int
-	keyColumns    []string
-	ignoreColumns []string
+	f1         *File
+	f2         *File
+	limit      int
+	keyColumns []string
 }
 
-func NewDiffer(f1 *File, f2 *File, limit int, keyColumns []string, ignoreColumns []string) *Differ {
+func NewDiffer(f1 *File, f2 *File, limit int, keyColumns []string) *Differ {
 	return &Differ{
-		f1: f1, f2: f2, limit: limit, keyColumns: keyColumns, ignoreColumns: ignoreColumns,
+		f1: f1, f2: f2, limit: limit, keyColumns: keyColumns,
 	}
 }
 
@@ -119,8 +117,8 @@ func (d *Differ) Diff() []*Diff {
 			f1Index++
 			continue
 		}
-		f1DataKey := "" //getComposite(f1Data[f1Index], d.keyColumns)
-		f2DataKey := "" //getComposite(f2Data[f2Index], d.keyColumns)
+		f1DataKey := d.f1.GetCompositeFromMap(f1Data[f1Index], d.keyColumns)
+		f2DataKey := d.f2.GetCompositeFromMap(f2Data[f2Index], d.keyColumns)
 		// same key, do a compare
 		if f1DataKey == f2DataKey {
 			diff := d.diffRow(f1Data[f1Index], f2Data[f2Index])
@@ -160,29 +158,6 @@ func (d *Differ) Diff() []*Diff {
 func (d *Differ) diffRow(r1 map[string]interface{}, r2 map[string]interface{}) *Diff {
 	// find overlapping map keys
 	keysToCompare := []string{}
-	ignoreKey := func(k string) bool {
-		if d.ignoreColumns == nil {
-			return false
-		}
-		for i := 0; i < len(d.ignoreColumns); i++ {
-			ic := strings.ToLower(d.ignoreColumns[i])
-			s := strings.ToLower(k)
-			if s == ic {
-				return true
-			}
-			if strings.HasPrefix(ic, "*") {
-				if strings.HasSuffix(s, strings.Replace(ic, "*", "", 1)) {
-					return true
-				}
-			}
-			if strings.HasSuffix(ic, "*") {
-				if strings.HasPrefix(s, strings.Replace(ic, "*", "", 1)) {
-					return true
-				}
-			}
-		}
-		return false
-	}
 	keyAdded := func(s string) bool {
 		for i := 0; i < len(keysToCompare); i++ {
 			if keysToCompare[i] == s {
@@ -192,12 +167,10 @@ func (d *Differ) diffRow(r1 map[string]interface{}, r2 map[string]interface{}) *
 		return false
 	}
 	for k := range r1 {
-		if !ignoreKey(k) {
-			keysToCompare = append(keysToCompare, k)
-		}
+		keysToCompare = append(keysToCompare, k)
 	}
 	for k := range r2 {
-		if !ignoreKey(k) && !keyAdded(k) {
+		if !keyAdded(k) {
 			keysToCompare = append(keysToCompare, k)
 		}
 	}
