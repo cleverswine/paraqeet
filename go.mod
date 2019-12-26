@@ -9,4 +9,5 @@ require (
 	github.com/spf13/cobra v0.0.5
 	github.com/xitongsys/parquet-go v1.4.0
 	github.com/xitongsys/parquet-go-source v0.0.0-20191104003508-ecfa341356a6
+	golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e
 )

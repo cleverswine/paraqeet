@@ -6,64 +6,65 @@ import (
 	"text/tabwriter"
 )
 
-// Diff represents a diff between 2 files
+// Diff represents a diff between 2 rows of data
 type Diff struct {
-	h  []string
-	f1 []interface{}
-	f2 []interface{}
-	n  string
+	columns  []string
+	f1Values []interface{}
+	f2Values []interface{}
+	note     string
 }
 
-// NewDiff gets a new Diff
+// NewDiff starts a new row Diff with the specified note
 func NewDiff(n string) *Diff {
-	return &Diff{n: n}
+	return &Diff{note: n}
 }
 
-// Add adds a record to the diff
+// Add adds an item to the diff
 func (d *Diff) Add(h string, f1 interface{}, f2 interface{}) {
-	if d.h == nil {
-		d.h = []string{}
+	if d.columns == nil {
+		d.columns = []string{}
 	}
-	if d.f1 == nil {
-		d.f1 = []interface{}{}
+	if d.f1Values == nil {
+		d.f1Values = []interface{}{}
 	}
-	if d.f2 == nil {
-		d.f2 = []interface{}{}
+	if d.f2Values == nil {
+		d.f2Values = []interface{}{}
 	}
-	d.h = append(d.h, h)
-	d.f1 = append(d.f1, f1)
-	d.f2 = append(d.f2, f2)
+	d.columns = append(d.columns, h)
+	d.f1Values = append(d.f1Values, f1)
+	d.f2Values = append(d.f2Values, f2)
 }
 
-// Any checks if any diffs have been set for this record
+// Any checks if any items have been set for this Diff
 func (d *Diff) Any() bool {
-	return d.h != nil && len(d.h) > 0
+	return d.columns != nil && len(d.columns) > 0
 }
 
-// Strings builds a string representation of the diff
+// String builds a string representation of the diff
 func (d *Diff) String(out io.Writer) {
 	println("\n===============================================================================================================")
-	println(d.n)
+	println(d.note)
 	println("===============================================================================================================")
 	w := tabwriter.NewWriter(out, 0, 0, 0, '.', tabwriter.Debug)
 	res := "\t"
-	for i := 0; i < len(d.h); i++ {
-		res += d.h[i] + "\t"
+	for i := 0; i < len(d.columns); i++ {
+		res += d.columns[i] + "\t"
 	}
 	fmt.Fprintln(w, res)
 	res = "COMP File\t"
-	for i := 0; i < len(d.f1); i++ {
-		res += valToString(d.f1[i]) + "\t"
+	for i := 0; i < len(d.f1Values); i++ {
+		res += toString(d.f1Values[i]) + "\t"
 	}
 	fmt.Fprintln(w, res)
 	res = "GOLD File\t"
-	for i := 0; i < len(d.f2); i++ {
-		res += valToString(d.f2[i]) + "\t"
+	for i := 0; i < len(d.f2Values); i++ {
+		res += toString(d.f2Values[i]) + "\t"
 	}
 	fmt.Fprintln(w, res)
 	w.Flush()
 }
 
+// Differ performs a diff between two Files
 type Differ struct {
 	f1         *File
 	f2         *File
@@ -71,12 +72,14 @@ type Differ struct {
 	keyColumns []string
 }
 
+// NewDiffer creates a new Differ
 func NewDiffer(f1 *File, f2 *File, limit int, keyColumns []string) *Differ {
 	return &Differ{
 		f1: f1, f2: f2, limit: limit, keyColumns: keyColumns,
 	}
 }
 
+// Diff performs the diff, returning an array of row Diffs
 func (d *Differ) Diff() []*Diff {
 	result := []*Diff{}
 	f1Data := d.f1.GetAllData()
@@ -178,7 +181,7 @@ func (d *Differ) diffRow(r1 map[string]interface{}, r2 map[string]interface{}) *
 	diffs := map[string][]interface{}{}
 	for i := 0; i < len(keysToCompare); i++ {
 		k := keysToCompare[i]
-		if valToString(r1[k]) != valToString(r2[k]) {
+		if toString(r1[k]) != toString(r2[k]) {
 			diffs[k] = []interface{}{r1[k], r2[k]}
 		}
 	}
@@ -190,14 +193,13 @@ func (d *Differ) diffRow(r1 map[string]interface{}, r2 map[string]interface{}) *
 		k := d.keyColumns[i]
 		diffs[k] = []interface{}{r1[k], r2[k]}
 	}
-
 	diff := NewDiff("Row has differences")
-	// add diffs in order
-	// for i := 0; i < len(d.f1.ColumnNames()); i++ {
-	// 	k := d.f1.ColumnNames()[i]
-	// 	if d, ok := diffs[k]; ok {
-	// 		diff.Add(k, d[0], d[1])
-	// 	}
-	// }
+	// add diffs in column order
+	for i := 0; i < len(d.f1.Columns()); i++ {
+		k := d.f1.Columns()[i]
+		if d, ok := diffs[k]; ok {
+			diff.Add(k, d[0], d[1])
+		}
+	}
 	return diff
 }

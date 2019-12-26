@@ -12,11 +12,7 @@ import (
 	"github.com/xitongsys/parquet-go/reader"
 )
 
-type Schema struct {
-	Name string
-	Path string
-}
-
+// File represents a column-based file
 type File struct {
 	ColumnsByIndex map[int]string
 	ColumnsByName  map[string]int
@@ -25,6 +21,21 @@ type File struct {
 	data           [][]interface{}
 }
 
+// Columns returns the names of the columns in order
+func (f *File) Columns() []string {
+	cols := []string{}
+	for i := 0; i < len(f.ColumnsByIndex); i++ {
+		cols = append(cols, f.ColumnsByIndex[i])
+	}
+	return cols
+}
+
+// Info writes out info about the File
+func (f *File) Info(out io.Writer) {
+	fmt.Fprintf(out, "\nColumns: \n%s\n\nRow Count: %d\n\n", strings.Join(f.Columns(), " | "), f.TotalRowCount)
+}
+
+// ToTable writes a table-formatted representation of the file
 func (f *File) ToTable(out io.Writer) error {
 	tw := tabwriter.NewWriter(out, 0, 0, 0, '.', tabwriter.Debug)
 	columnNames := []string{}
@@ -38,10 +49,12 @@ func (f *File) ToTable(out io.Writer) error {
 	return tw.Flush()
 }
 
-func (f *File) ToJson(out io.Writer) error {
+// ToJSON writes a json-formatted representation of the file
+func (f *File) ToJSON(out io.Writer) error {
 	return json.NewEncoder(out).Encode(f.GetAllData())
 }
 
+// AddData adds a row of data
 func (f *File) AddData(data []interface{}) {
 	if f.data == nil {
 		f.data = [][]interface{}{}
@@ -49,6 +62,7 @@ func (f *File) AddData(data []interface{}) {
 	f.data = append(f.data, data)
 }
 
+// GetAllData returns all data, with each row represented as a Map
 func (f *File) GetAllData() []map[string]interface{} {
 	result := []map[string]interface{}{}
 	for i := 0; i < len(f.data); i++ {
@@ -61,6 +75,7 @@ func (f *File) GetAllData() []map[string]interface{} {
 	return result
 }
 
+// GetRowAsStrings gets a single row with all values converted to string
 func (f *File) GetRowAsStrings(index int) []string {
 	result := []string{}
 	for i := 0; i < len(f.ColumnsByIndex); i++ {
@@ -69,6 +84,7 @@ func (f *File) GetRowAsStrings(index int) []string {
 	return result
 }
 
+// GetRow gets a single row represented as a Map
 func (f *File) GetRow(index int) map[string]interface{} {
 	result := map[string]interface{}{}
 	for i := 0; i < len(f.ColumnsByIndex); i++ {
@@ -77,6 +93,7 @@ func (f *File) GetRow(index int) map[string]interface{} {
 	return result
 }
 
+// GetComposite combines multiple columns of a row into one string (for composite keys, etc)
 func (f *File) GetComposite(row []interface{}, cols []string) string {
 	result := ""
 	for i := 0; i < len(cols); i++ {
@@ -87,6 +104,7 @@ func (f *File) GetComposite(row []interface{}, cols []string) string {
 	return result
 }
 
+// GetCompositeFromMap combines multiple columns of a row into one string (for composite keys, etc)
 func (f *File) GetCompositeFromMap(row map[string]interface{}, cols []string) string {
 	result := ""
 	for i := 0; i < len(cols); i++ {
@@ -97,6 +115,7 @@ func (f *File) GetCompositeFromMap(row map[string]interface{}, cols []string) st
 	return result
 }
 
+// Sort sorts the file in place
 func (f *File) Sort(sortBy []string) {
 	arrayEmpty := func(a []string) bool {
 		return a == nil || len(a) == 0 || a[0] == ""
@@ -109,6 +128,7 @@ func (f *File) Sort(sortBy []string) {
 	})
 }
 
+// LoadFile loads a File from a parquet file
 func LoadFile(fn string, ignore []string, restrict []string, limit int) (*File, error) {
 	arrayEmpty := func(a []string) bool {
 		return a == nil || len(a) == 0 || a[0] == ""
@@ -193,7 +213,7 @@ func LoadFile(fn string, ignore []string, restrict []string, limit int) (*File, 
 			j++
 		} else {
 			// log.debug...
-			fmt.Println(err)
+			//fmt.Println(err)
 		}
 	}
 	// convert the columner data to []rows
