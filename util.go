@@ -17,6 +17,27 @@ func arrayEmpty(a []string) bool {
 	return a == nil || len(a) == 0 || a[0] == ""
 }
 
+func contains(arr []string, k string) bool {
+	for i := 0; i < len(arr); i++ {
+		ic := strings.ToLower(arr[i])
+		s := strings.ToLower(k)
+		if s == ic {
+			return true
+		}
+		if strings.HasPrefix(ic, "*") {
+			if strings.HasSuffix(s, strings.Replace(ic, "*", "", 1)) {
+				return true
+			}
+		}
+		if strings.HasSuffix(ic, "*") {
+			if strings.HasPrefix(s, strings.Replace(ic, "*", "", 1)) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func toString(i interface{}) string {
 	if i == nil {
 		return "<null>"

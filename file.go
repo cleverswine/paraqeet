@@ -4,6 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
+	"os"
+	"runtime"
+	"runtime/pprof"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -18,7 +22,7 @@ type File struct {
 	ColumnsByName  map[string]int
 	TotalRowCount  int
 	LoadedRowCount int
-	data           [][]interface{}
+	Data           [][]interface{}
 }
 
 // Columns returns the names of the columns in order
@@ -43,7 +47,7 @@ func (f *File) ToTable(out io.Writer) error {
 		columnNames = append(columnNames, f.ColumnsByIndex[i])
 	}
 	fmt.Fprintln(tw, strings.Join(columnNames, "\t"))
-	for i := 0; i < len(f.data); i++ {
+	for i := 0; i < len(f.Data); i++ {
 		fmt.Fprintln(tw, strings.Join(f.GetRowAsStrings(i), "\t"))
 	}
 	return tw.Flush()
@@ -56,19 +60,19 @@ func (f *File) ToJSON(out io.Writer) error {
 
 // AddData adds a row of data
 func (f *File) AddData(data []interface{}) {
-	if f.data == nil {
-		f.data = [][]interface{}{}
+	if f.Data == nil {
+		f.Data = [][]interface{}{}
 	}
-	f.data = append(f.data, data)
+	f.Data = append(f.Data, data)
 }
 
 // GetAllData returns all data, with each row represented as a Map
 func (f *File) GetAllData() []map[string]interface{} {
 	result := []map[string]interface{}{}
-	for i := 0; i < len(f.data); i++ {
+	for i := 0; i < len(f.Data); i++ {
 		item := map[string]interface{}{}
 		for j := 0; j < len(f.ColumnsByIndex); j++ {
-			item[f.ColumnsByIndex[j]] = f.data[i][j]
+			item[f.ColumnsByIndex[j]] = f.Data[i][j]
 		}
 		result = append(result, item)
 	}
@@ -79,7 +83,7 @@ func (f *File) GetAllData() []map[string]interface{} {
 func (f *File) GetRowAsStrings(index int) []string {
 	result := []string{}
 	for i := 0; i < len(f.ColumnsByIndex); i++ {
-		result = append(result, toString(f.data[index][i]))
+		result = append(result, toString(f.Data[index][i]))
 	}
 	return result
 }
@@ -88,7 +92,7 @@ func (f *File) GetRowAsStrings(index int) []string {
 func (f *File) GetRow(index int) map[string]interface{} {
 	result := map[string]interface{}{}
 	for i := 0; i < len(f.ColumnsByIndex); i++ {
-		result[f.ColumnsByIndex[i]] = f.data[index][i]
+		result[f.ColumnsByIndex[i]] = f.Data[index][i]
 	}
 	return result
 }
@@ -123,36 +127,19 @@ func (f *File) Sort(sortBy []string) {
 	if arrayEmpty(sortBy) {
 		return
 	}
-	sort.Slice(f.data, func(i, j int) bool {
-		return f.GetComposite(f.data[i], sortBy) < f.GetComposite(f.data[j], sortBy)
+	sort.Slice(f.Data, func(i, j int) bool {
+		return f.GetComposite(f.Data[i], sortBy) < f.GetComposite(f.Data[j], sortBy)
 	})
 }
 
 // LoadFile loads a File from a parquet file
 func LoadFile(fn string, ignore []string, restrict []string, limit int) (*File, error) {
-	arrayEmpty := func(a []string) bool {
-		return a == nil || len(a) == 0 || a[0] == ""
+	f, err := os.Create("mem.profile")
+	if err != nil {
+		log.Fatal("could not create memory profile: ", err)
 	}
-	contains := func(arr []string, k string) bool {
-		for i := 0; i < len(arr); i++ {
-			ic := strings.ToLower(arr[i])
-			s := strings.ToLower(k)
-			if s == ic {
-				return true
-			}
-			if strings.HasPrefix(ic, "*") {
-				if strings.HasSuffix(s, strings.Replace(ic, "*", "", 1)) {
-					return true
-				}
-			}
-			if strings.HasSuffix(ic, "*") {
-				if strings.HasPrefix(s, strings.Replace(ic, "*", "", 1)) {
-					return true
-				}
-			}
-		}
-		return false
-	}
+	defer f.Close()
+
 	ignoreColumn := func(k string) bool {
 		if !arrayEmpty(restrict) {
 			return !contains(restrict, k)
@@ -172,61 +159,94 @@ func LoadFile(fn string, ignore []string, restrict []string, limit int) (*File, 
 		return nil, err
 	}
 	defer pr.ReadStop()
-	// get some parquet file info
-	err = pr.ReadFooter()
-	if err != nil {
-		return nil, err
+
+	totalRows := int(pr.GetNumRows())
+	maxRows := limit
+	if maxRows < 1 || maxRows > totalRows {
+		maxRows = totalRows
 	}
-	//pqSchema := pr.Footer.GetSchema()
-	//json.NewEncoder(os.Stdout).Encode(pr.SchemaHandler.IndexMap)
 	// populate return val with some info
-	t := int(pr.Footer.GetNumRows())
-	l := limit
-	if l < 1 || l > t {
-		l = t
-	}
 	pq := &File{
-		TotalRowCount:  t,
-		LoadedRowCount: l,
+		TotalRowCount:  totalRows,
+		LoadedRowCount: maxRows,
 		ColumnsByIndex: map[int]string{},
 		ColumnsByName:  map[string]int{},
-		data:           [][]interface{}{},
 	}
-	// try reading the data for each column
-	data := map[string][]interface{}{}
+	// initialize data array
+	pq.Data = make([][]interface{}, maxRows)
+	for i := 0; i < len(pq.Data); i++ {
+		pq.Data[i] = make([]interface{}, len(pr.SchemaHandler.ValueColumns))
+	}
+	fmt.Printf("%d x %d\n", len(pq.Data), len(pq.Data[0]))
+	// load up data one column at a time
 	j := 0
-	for i := 0; i < len(pr.SchemaHandler.IndexMap); i++ {
-		col := pr.SchemaHandler.IndexMap[int32(i)]
+	for i := 0; i < len(pr.SchemaHandler.ValueColumns); i++ {
+		col := pr.SchemaHandler.ValueColumns[int32(i)]
 		ns := strings.Split(col, ".")
 		colName := ns[len(ns)-1]
 		if len(ns) > 2 || len(ns) == 0 {
+			log.Printf("Ignoring nested data %s\n", col)
 			continue
 		}
 		if ignoreColumn(colName) {
+			log.Printf("Ignoring %s\n", col)
 			continue
 		}
-		vals, _, _, err := pr.ReadColumnByPath(col, l)
-		if err == nil {
-			data[colName] = vals
-			pq.ColumnsByIndex[j] = colName
-			pq.ColumnsByName[colName] = j
-			j++
-		} else {
-			// log.debug...
-			//fmt.Println(err)
+		vals, _, _, err := pr.ReadColumnByPath(col, maxRows)
+		if err != nil {
+			log.Println(err)
+			continue
 		}
-	}
-	// convert the columner data to []rows
-	for i := 0; i < l; i++ {
-		result := []interface{}{}
-		// columns
-		for j := 0; j < len(pq.ColumnsByIndex); j++ {
-			row := data[pq.ColumnsByIndex[j]]
-			if len(row) > i {
-				result = append(result, row[i])
-			}
+		log.Printf("Loaded column #%d: %s\n", j, colName)
+		for k := 0; k < len(vals); k++ {
+			pq.Data[k][j] = vals[k]
 		}
-		pq.AddData(result)
+		pq.ColumnsByIndex[j] = colName
+		pq.ColumnsByName[colName] = j
+		j++
 	}
+
+	// // try reading the data for each column
+	// data := map[string][]interface{}{}
+	// j := 0
+	// for i := 0; i < len(pr.SchemaHandler.IndexMap); i++ {
+	// 	col := pr.SchemaHandler.IndexMap[int32(i)]
+	// 	ns := strings.Split(col, ".")
+	// 	colName := ns[len(ns)-1]
+	// 	if len(ns) > 2 || len(ns) == 0 {
+	// 		continue
+	// 	}
+	// 	if ignoreColumn(colName) {
+	// 		continue
+	// 	}
+	// 	vals, _, _, err := pr.ReadColumnByPath(col, maxRows)
+	// 	if err == nil {
+	// 		data[colName] = vals
+	// 		pq.ColumnsByIndex[j] = colName
+	// 		pq.ColumnsByName[colName] = j
+	// 		j++
+	// 	} else {
+	// 		// log.debug...
+	// 		//fmt.Println(err)
+	// 	}
+	// }
+	// // convert the columner data to []rows
+	// for i := 0; i < maxRows; i++ {
+	// 	result := []interface{}{}
+	// 	// columns
+	// 	for j := 0; j < len(pq.ColumnsByIndex); j++ {
+	// 		row := data[pq.ColumnsByIndex[j]]
+	// 		if len(row) > i {
+	// 			result = append(result, row[i])
+	// 		}
+	// 	}
+	// 	pq.AddData(result)
+	// }
+
+	runtime.GC() // get up-to-date statistics
+	if err := pprof.WriteHeapProfile(f); err != nil {
+		log.Fatal("could not write memory profile: ", err)
+	}
+
 	return pq, nil
 }
